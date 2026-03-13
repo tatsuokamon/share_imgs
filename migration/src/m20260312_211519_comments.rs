@@ -12,9 +12,10 @@ impl MigrationTrait for Migration {
                     .table(Comment::Table)
                     .if_not_exists()
                     .col(ColumnDef::new(Comment::Id).uuid().primary_key())
-                    .col(ColumnDef::new(Comment::Content).text().not_null())
                     .col(ColumnDef::new(Comment::RoomId).uuid().not_null())
                     .col(ColumnDef::new(Comment::UserId).uuid().not_null())
+                    .col(ColumnDef::new(Comment::Content).text().not_null())
+                    .col(ColumnDef::new(Comment::DisplayName).text())
                     .col(ColumnDef::new(Comment::CreatedAt).timestamp().not_null())
                     .col(ColumnDef::new(Comment::DeltedAt).timestamp())
                     .foreign_key(
@@ -55,6 +56,7 @@ pub enum Comment {
     UserId,
 
     Content,
+    DisplayName,
     CreatedAt,
     DeltedAt,
 }

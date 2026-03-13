@@ -12,7 +12,7 @@ impl MigrationTrait for Migration {
                     .table(Room::Table)
                     .if_not_exists()
                     .col(ColumnDef::new(Room::Id).uuid().primary_key())
-                    .col(ColumnDef::new(Room::Keyword).string().unique_key())
+                    .col(ColumnDef::new(Room::Keyword).string())
                     .col(ColumnDef::new(Room::MasterId).uuid().not_null())
                     .col(ColumnDef::new(Room::CreatedAt).timestamp().not_null())
                     .col(ColumnDef::new(Room::DeletedAt).timestamp())
