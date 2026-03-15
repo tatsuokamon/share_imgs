@@ -17,7 +17,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Comment::Content).text().not_null())
                     .col(ColumnDef::new(Comment::DisplayName).text())
                     .col(ColumnDef::new(Comment::CreatedAt).timestamp().not_null())
-                    .col(ColumnDef::new(Comment::DeltedAt).timestamp())
+                    .col(ColumnDef::new(Comment::DeletedAt).timestamp())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-comments-roomid")
@@ -58,7 +58,7 @@ pub enum Comment {
     Content,
     DisplayName,
     CreatedAt,
-    DeltedAt,
+    DeletedAt,
 }
 
 #[derive(Iden)]
@@ -69,7 +69,7 @@ pub enum Room {
     Keyword,
     MasterId,
     CreatedAt,
-    DeletedAt,
+    DeleetedAt,
 }
 
 #[derive(Iden)]
