@@ -22,7 +22,10 @@ pub fn verify_token(token: &str, secret: &[u8]) -> Option<Uuid> {
     let user_id = Uuid::parse_str(parts[0]).ok()?;
     let sig = general_purpose::STANDARD.decode(parts[1]).ok()?;
 
-    if sig == generate_token(&user_id, secret) {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret).ok()?;
+    mac.update(user_id.as_bytes());
+
+    if mac.verify_slice(&sig).is_ok() {
         Some(user_id)
     } else {
         None
