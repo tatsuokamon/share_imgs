@@ -6,7 +6,7 @@ on:
   pull_request:
 
 env:
-  IMAGE_NAME: tatsuokamon/
+  IMAGE_NAME: tatsuokamon/share_imgs
 
 jobs:
   docker:
