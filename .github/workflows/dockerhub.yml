@@ -30,7 +30,7 @@ jobs:
 
       - name: Docker meta (Tags, lables)
         id: meta
-        users: docker/metadata-action@v5
+        uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
