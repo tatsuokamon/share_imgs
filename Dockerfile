@@ -4,7 +4,7 @@ FROM rust:1.93-bookworm AS backend-builder
 WORKDIR /app
 
 COPY ./Cargo.toml ./
-COPY ./src/ ./src/
+COPY ./src ./src
 
 RUN cargo build --release
 
