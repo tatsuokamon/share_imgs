@@ -8,10 +8,10 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    engine::EngineState,
+    engine::{EngineState, check_if_he_can_take_action_in_room},
     repository::{
-        self, RepositoryErr, check_if_he_is_authorized, check_if_he_take_action_in_room,
-        check_if_img_deleted, check_if_img_exists, check_if_room_has_img,
+        self, RepositoryErr, check_if_he_is_authorized, check_if_img_deleted, check_if_img_exists,
+        check_if_room_has_img,
     },
     ws::broadcast,
 };
@@ -50,7 +50,7 @@ async fn _delete_img_inner(
     state: EngineState,
 ) -> Result<axum::http::StatusCode, DeleteImgErr> {
     let mut conn = state.pool.get().await?;
-    if !check_if_he_take_action_in_room(&state.db, &mut conn, &q.master_id, &q.room_id).await? {
+    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &q.master_id, &q.room_id).await? {
         return Ok(axum::http::StatusCode::FORBIDDEN);
     }
 

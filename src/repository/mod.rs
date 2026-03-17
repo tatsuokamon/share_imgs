@@ -37,14 +37,6 @@ fn generate_redis_post_comment_tag(user_id: &Uuid) -> String {
     format!("post-comment-{}", user_id)
 }
 
-fn generate_redis_ban_tag(ban_target_id: &Uuid, from_room_id: &Option<Uuid>) -> String {
-    if let Some(room_id) = from_room_id {
-        format!("ban-{}-{}", ban_target_id, &room_id)
-    } else {
-        format!("ban-{}", ban_target_id)
-    }
-}
-
 pub async fn check_if_he_exists(
     db: &impl ConnectionTrait,
     user_id: &Uuid,
@@ -83,15 +75,6 @@ pub async fn check_if_he_is_authorized(
             false
         },
     )
-}
-
-pub async fn check_if_he_banned(
-    conn: &mut PooledConnection<'_, RedisConnectionManager>,
-    user_id: &Uuid,
-    from_room_id: &Option<Uuid>,
-) -> Result<bool, RepositoryErr> {
-    let ban_tag = generate_redis_ban_tag(user_id, from_room_id);
-    Ok(conn.get::<String, Option<String>>(ban_tag).await?.is_some())
 }
 
 pub async fn check_if_room_exists(
@@ -409,16 +392,19 @@ pub async fn delete_comment(
     Ok(())
 }
 
-// if room id not specified, target will be banned from all room
-pub async fn ban_user(
+pub async fn check_if_ban_tag_exists(
     conn: &mut PooledConnection<'_, RedisConnectionManager>,
+    tag: &str,
+) -> Result<bool, RepositoryErr> {
+    Ok(conn.get::<&str, Option<String>>(tag).await?.is_some())
+}
 
-    ban_target_id: &Uuid,
-    from_room_id: &Option<Uuid>,
+// if room id not specified, target will be banned from all room
+pub async fn ban_user_with_tag(
+    conn: &mut PooledConnection<'_, RedisConnectionManager>,
     ban_timeout: usize,
+    redis_ban_storage_tag: String,
 ) -> Result<(), RepositoryErr> {
-    let redis_ban_storage_tag = generate_redis_ban_tag(ban_target_id, from_room_id);
-
     let _: String = redis::cmd("SET")
         .arg(redis_ban_storage_tag)
         .arg("1")
@@ -431,32 +417,16 @@ pub async fn ban_user(
     Ok(())
 }
 
-pub async fn resolve_user_ban(
+pub async fn resolve_user_ban_with_tag(
     conn: &mut PooledConnection<'_, RedisConnectionManager>,
-
-    ban_target_id: &Uuid,
-    from_room_id: &Option<Uuid>,
+    redis_ban_storage_tag: String,
 ) -> Result<(), RepositoryErr> {
-    let redis_ban_storage_tag = generate_redis_ban_tag(ban_target_id, from_room_id);
     let _: String = redis::cmd("DEL")
         .arg(redis_ban_storage_tag)
         .query_async(&mut **conn)
         .await?;
 
     Ok(())
-}
-
-pub async fn check_if_he_take_action_in_room(
-    db: &impl ConnectionTrait,
-    conn: &mut PooledConnection<'_, RedisConnectionManager>,
-
-    user_id: &Uuid,
-    room_id: &Uuid,
-) -> Result<bool, RepositoryErr> {
-    Ok(check_if_he_exists(db, user_id).await?
-        && check_if_room_exists(db, room_id).await?
-        && !check_if_he_banned(conn, user_id, &None).await?
-        && !check_if_he_banned(conn, user_id, &Some(room_id.clone())).await?)
 }
 
 fn generate_redis_presigned_url_save(presigned_url: &str, user_id: &Uuid) -> String {
@@ -561,7 +531,7 @@ pub async fn upsert_img_vote(
             .await?;
         }
         Some(m) => {
-            let active_model: image_vote::ActiveModel = m.into();
+            let mut active_model: image_vote::ActiveModel = m.into();
             active_model.is_good = sea_orm::ActiveValue::Set(is_good);
             active_model.created_at = sea_orm::ActiveValue::Set(chrono::Utc::now().naive_utc());
 
@@ -570,4 +540,25 @@ pub async fn upsert_img_vote(
     }
 
     Ok(())
+}
+
+pub async fn find_user_id_with_img_id(
+    db: &impl ConnectionTrait,
+    img_id: &Uuid,
+) -> Result<Option<Uuid>, RepositoryErr> {
+    Ok(
+        if let Some(m) = user::Entity::find()
+            .join(
+                sea_orm::JoinType::InnerJoin,
+                user::Relation::Images.def().rev(),
+            )
+            .filter(images::Column::Id.eq(img_id.to_string()))
+            .one(db)
+            .await?
+        {
+            Some(m.id)
+        } else {
+            None
+        },
+    )
 }

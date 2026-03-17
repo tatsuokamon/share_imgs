@@ -8,7 +8,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    engine::EngineState,
+    engine::{EngineState, check_if_he_can_take_action_in_room},
     repository::{
         self, RepositoryErr, check_if_comment_exists, check_if_he_exists,
         check_if_he_is_authorized, check_if_room_has_comment,
@@ -49,7 +49,9 @@ async fn _delete_comment_inner(
     q: DeleteCommentQuery,
     state: EngineState,
 ) -> Result<axum::http::StatusCode, DeleteCommentErr> {
-    if !check_if_he_exists(&state.db, &q.master_id).await? {
+    let mut conn = state.pool.get().await?;
+
+    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &q.master_id, &q.room_id).await? {
         return Ok(axum::http::StatusCode::FORBIDDEN);
     }
 

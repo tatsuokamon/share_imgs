@@ -1,15 +1,12 @@
 use axum::{
+    Json,
     extract::{Query, State},
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    engine::{EngineState, get_posted_img::GetPostedImgResult},
-    entity::comment,
-    repository,
-};
+use crate::{engine::EngineState, entity::comment, repository};
 
 #[derive(Serialize)]
 pub struct GetPostedComment {
@@ -29,7 +26,7 @@ pub async fn get_posted_comment(
     match repository::get_posted_comments(&state.db, &q.room_id).await {
         Ok(result) => (
             axum::http::StatusCode::OK,
-            Json(GetPostedImgResult {
+            Json(GetPostedComment {
                 payload: Some(result),
                 success: true,
             }),
@@ -39,7 +36,7 @@ pub async fn get_posted_comment(
             tracing::error!("{e}");
             (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(GetPostedImgResult {
+                Json(GetPostedComment {
                     payload: None,
                     success: false,
                 }),

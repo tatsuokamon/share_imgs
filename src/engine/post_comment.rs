@@ -9,10 +9,8 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    engine::{EngineState, generate_user_identifier},
-    repository::{
-        self, RepositoryErr, check_if_he_take_action_in_room, check_if_his_comment_waits_enough,
-    },
+    engine::{EngineState, check_if_he_can_take_action_in_room, generate_user_identifier},
+    repository::{self, RepositoryErr, check_if_his_comment_waits_enough},
     ws::broadcast,
 };
 
@@ -57,20 +55,25 @@ async fn _post_comment_inner(
     State(state): State<EngineState>,
 ) -> Result<axum::http::StatusCode, PostCommentErr> {
     let mut conn = state.pool.get().await?;
-    if !check_if_he_take_action_in_room(&state.db, &mut conn, &q.user_id, &q.room_id).await? {
+    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &q.user_id, &q.room_id).await? {
         return Ok(axum::http::StatusCode::FORBIDDEN);
     }
 
     if !check_if_his_comment_waits_enough(&mut conn, &q.user_id).await? {
         return Ok(axum::http::StatusCode::TOO_MANY_REQUESTS);
     }
+    let content = if payload.content.len() < 141 {
+        payload.content.clone()
+    } else {
+        payload.content.get(0..141).unwrap().to_string()
+    };
 
     let comment_id = repository::post_comment(
         &state.db,
         q.room_id.clone(),
         q.user_id.clone(),
         payload.display_name.clone(),
-        payload.content.clone(),
+        content.clone(),
     )
     .await?;
 
@@ -80,7 +83,7 @@ async fn _post_comment_inner(
         crate::ws::ServerEvent::CommentPosted {
             id: comment_id,
             display_name: payload.display_name.unwrap_or("無名".to_string()),
-            content: payload.content,
+            content: content,
             user_identifier: generate_user_identifier(&q.user_id),
         },
     );

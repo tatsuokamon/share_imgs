@@ -9,11 +9,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    engine::EngineState,
+    engine::{EngineState, check_if_he_can_take_action_in_room},
     repository::{
-        RepositoryErr, add_valid_presigned_url, check_if_he_take_action_in_room,
-        check_if_his_img_waits_enough, commit_img, generate_object_key, generate_presigned_url,
-        update_commit_img_status,
+        RepositoryErr, add_valid_presigned_url, check_if_his_img_waits_enough, generate_object_key,
+        generate_presigned_url,
     },
 };
 
@@ -66,7 +65,7 @@ async fn _get_presigned_url_inner(
     state: EngineState,
 ) -> Result<(axum::http::StatusCode, GetURLResult), GetURLErr> {
     let mut conn = state.pool.get().await?;
-    if !check_if_he_take_action_in_room(&state.db, &mut conn, &q.user_id, &q.room_id).await? {
+    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &q.user_id, &q.room_id).await? {
         return Ok((
             axum::http::StatusCode::FORBIDDEN,
             GetURLResult {

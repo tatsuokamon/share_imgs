@@ -8,7 +8,6 @@ use uuid::Uuid;
 
 use crate::{
     engine::EngineState,
-    entity::image_vote,
     repository::{RepositoryErr, check_if_img_vote_exists, upsert_img_vote},
     ws::broadcast,
 };

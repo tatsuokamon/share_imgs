@@ -7,16 +7,12 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::repository::{
-    RepositoryErr, check_if_he_banned, check_if_he_exists, check_if_his_img_waits_enough,
-    generate_object_key, generate_presigned_url, generate_user, update_commit_img_status,
+    RepositoryErr, check_if_he_exists, check_if_his_img_waits_enough, generate_object_key,
+    generate_presigned_url, generate_user, update_commit_img_status,
 };
 
 #[derive(Serialize, Clone)]
 pub enum ServerEvent {
-    ProvideId {
-        id: Uuid,
-    },
-
     ProvidePresignedURL {
         url: Option<String>,
     },
@@ -54,7 +50,12 @@ pub enum ServerEvent {
         his_identifier: String,
     },
 
+    ResolvedUserBan {
+        his_identifier: String,
+    },
+
     RoomDeleted,
+
     OthersJoin,
     OthersDrop,
 }
@@ -74,9 +75,11 @@ pub fn join_room(manager: &WsManager, room_id: Uuid, client_id: Uuid, tx: Tx) {
 }
 
 pub fn leave_room(manager: &WsManager, room_id: Uuid, client_id: Uuid) {
-    if let Some(mut room) = manager.rooms.get(&room_id) {
+    if let Some(room) = manager.rooms.get(&room_id) {
         room.remove(&client_id);
     }
+
+    broadcast(manager, room_id, ServerEvent::OthersDrop);
 }
 
 pub fn broadcast(manager: &WsManager, room_id: Uuid, event: ServerEvent) {
@@ -105,7 +108,7 @@ pub async fn handle_socket(socket: WebSocket, room_id: Uuid, client_id: Uuid, ma
         }
     });
 
-    let recv_task = tokio::spawn(async move { while let Some(Ok(_)) = receiver.recv().await {} });
+    let recv_task = tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
 
     tokio::select! {
         _ = send_task => {},

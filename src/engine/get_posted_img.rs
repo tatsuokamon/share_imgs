@@ -27,7 +27,7 @@ pub async fn get_posted_img(
         Ok(v) => (
             axum::http::StatusCode::OK,
             Json(GetPostedImgResult {
-                payload: v,
+                payload: Some(v),
                 success: true,
             }),
         ),

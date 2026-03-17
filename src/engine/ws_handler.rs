@@ -1,4 +1,7 @@
-use axum::extract::{Query, State, WebSocketUpgrade};
+use axum::{
+    extract::{Query, State, WebSocketUpgrade},
+    response::IntoResponse,
+};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -19,7 +22,7 @@ pub async fn ws_handler(
     ws: WebSocketUpgrade,
     Query(q): Query<WsParams>,
     State(state): State<EngineState>,
-) -> axum::http::StatusCode {
+) -> impl IntoResponse {
     if let Some(id) = get_room_id_from_keyword(&state.db, &q.room_keyword)
         .await
         .unwrap()
