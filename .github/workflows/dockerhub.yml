@@ -11,7 +11,7 @@ env:
 jobs:
   docker:
     runs-on: ubuntu-latest
-    premissions:
+    permissions:
       contents: read
 
     steps:
