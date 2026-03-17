@@ -13,7 +13,7 @@ RUN cargo build --release
 FROM rust:1.93-bookworm AS migration-builder
 WORKDIR /app
 
-COPY ./migration/Cargo.toml
+COPY ./migration/Cargo.toml ./
 COPY ./migration/src/ ./src/
 
 RUN cargo build --release
