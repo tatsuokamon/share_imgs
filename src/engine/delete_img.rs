@@ -8,10 +8,9 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    engine::{EngineState, check_if_he_can_take_action_in_room},
+    engine::{EngineState, auth::AuthUser, check_if_he_can_take_action_in_room},
     repository::{
-        self, RepositoryErr, check_if_he_is_authorized, check_if_img_deleted, check_if_img_exists,
-        check_if_room_has_img,
+        self, RepositoryErr, check_if_he_is_authorized, check_if_img_exists, check_if_room_has_img,
     },
     ws::broadcast,
 };
@@ -27,7 +26,6 @@ pub enum DeleteImgErr {
 
 #[derive(Deserialize)]
 pub struct DeleteImgQuery {
-    pub master_id: Uuid,
     pub img_id: Uuid,
     pub room_id: Uuid,
 }
@@ -35,8 +33,9 @@ pub struct DeleteImgQuery {
 pub async fn delete_img(
     Query(q): Query<DeleteImgQuery>,
     State(state): State<EngineState>,
+    auth: AuthUser,
 ) -> impl IntoResponse {
-    match _delete_img_inner(q, state).await {
+    match _delete_img_inner(q, state, auth).await {
         Ok(res) => res,
         Err(e) => {
             tracing::error!("{e}");
@@ -48,9 +47,11 @@ pub async fn delete_img(
 async fn _delete_img_inner(
     q: DeleteImgQuery,
     state: EngineState,
+    auth: AuthUser,
 ) -> Result<axum::http::StatusCode, DeleteImgErr> {
     let mut conn = state.pool.get().await?;
-    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &q.master_id, &q.room_id).await? {
+    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &auth.user_id, &q.room_id).await?
+    {
         return Ok(axum::http::StatusCode::FORBIDDEN);
     }
 
@@ -62,10 +63,10 @@ async fn _delete_img_inner(
         return Ok(axum::http::StatusCode::BAD_REQUEST);
     }
 
-    if !check_if_he_is_authorized(&state.db, &q.master_id, &q.room_id).await? {
+    if !check_if_he_is_authorized(&state.db, &auth.user_id, &q.room_id).await? {
         return Ok(axum::http::StatusCode::FORBIDDEN);
     }
-    repository::delete_img(&state.db, q.img_id.clone()).await?;
+    repository::delete_img(&state.db, q.img_id).await?;
 
     broadcast(
         &state.manager,

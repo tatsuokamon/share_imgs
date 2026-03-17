@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    engine::{EngineState, check_if_he_can_take_action_in_room},
+    engine::{EngineState, auth::AuthUser, check_if_he_can_take_action_in_room},
     repository::{
         RepositoryErr, add_valid_presigned_url, check_if_his_img_waits_enough, generate_object_key,
         generate_presigned_url,
@@ -18,7 +18,6 @@ use crate::{
 
 #[derive(Deserialize)]
 pub struct GetURLQuery {
-    pub user_id: Uuid,
     pub room_id: Uuid,
     pub title: Option<String>,
 }
@@ -41,8 +40,9 @@ pub struct GetURLResult {
 pub async fn get_presigned_url(
     Query(q): Query<GetURLQuery>,
     State(state): State<EngineState>,
+    auth: AuthUser,
 ) -> impl IntoResponse {
-    match _get_presigned_url_inner(q, state).await {
+    match _get_presigned_url_inner(q, state, auth).await {
         Ok(resp) => {
             let (code, result) = resp;
             (code, Json(result))
@@ -63,9 +63,11 @@ pub async fn get_presigned_url(
 async fn _get_presigned_url_inner(
     q: GetURLQuery,
     state: EngineState,
+    auth: AuthUser,
 ) -> Result<(axum::http::StatusCode, GetURLResult), GetURLErr> {
     let mut conn = state.pool.get().await?;
-    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &q.user_id, &q.room_id).await? {
+    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &auth.user_id, &q.room_id).await?
+    {
         return Ok((
             axum::http::StatusCode::FORBIDDEN,
             GetURLResult {
@@ -75,7 +77,7 @@ async fn _get_presigned_url_inner(
         ));
     };
 
-    if !check_if_his_img_waits_enough(&mut conn, &q.user_id).await? {
+    if !check_if_his_img_waits_enough(&mut conn, &auth.user_id).await? {
         return Ok((
             axum::http::StatusCode::TOO_MANY_REQUESTS,
             GetURLResult {
@@ -95,7 +97,7 @@ async fn _get_presigned_url_inner(
     .await?;
     add_valid_presigned_url(
         &mut conn,
-        &q.user_id,
+        &auth.user_id,
         &presigned_url,
         &obj_key,
         state.expires_in,

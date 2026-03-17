@@ -1,5 +1,4 @@
-use aws_sdk_s3::types::error::builders::TooManyPartsBuilder;
-use axum::extract::ws::{WebSocket, WebSocketUpgrade};
+use axum::extract::ws::WebSocket;
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
@@ -7,16 +6,12 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::repository::{
-    RepositoryErr, check_if_he_exists, check_if_his_img_waits_enough, generate_object_key,
-    generate_presigned_url, generate_user, update_commit_img_status,
+    check_if_he_exists, check_if_his_img_waits_enough, generate_object_key, generate_presigned_url,
+    update_commit_img_status,
 };
 
 #[derive(Serialize, Clone)]
 pub enum ServerEvent {
-    ProvidePresignedURL {
-        url: Option<String>,
-    },
-
     ImagePosted {
         id: Uuid,
         url: String,
@@ -55,15 +50,21 @@ pub enum ServerEvent {
     },
 
     RoomDeleted,
-
     OthersJoin,
     OthersDrop,
 }
 
 type Tx = mpsc::UnboundedSender<ServerEvent>;
 
+#[derive(Default)]
 pub struct WsManager {
     pub rooms: DashMap<Uuid, DashMap<Uuid, Tx>>,
+}
+
+impl WsManager {
+    pub fn new() -> Self {
+        WsManager::default()
+    }
 }
 
 pub fn join_room(manager: &WsManager, room_id: Uuid, client_id: Uuid, tx: Tx) {
@@ -74,30 +75,52 @@ pub fn join_room(manager: &WsManager, room_id: Uuid, client_id: Uuid, tx: Tx) {
         .insert(client_id, tx);
 }
 
-pub fn leave_room(manager: &WsManager, room_id: Uuid, client_id: Uuid) {
+pub fn leave_room(manager: &WsManager, room_id: Uuid, client_id: &Uuid) {
     if let Some(room) = manager.rooms.get(&room_id) {
         room.remove(&client_id);
+
+        if room.is_empty() {
+            manager.rooms.remove(&room_id);
+        }
     }
 
     broadcast(manager, room_id, ServerEvent::OthersDrop);
 }
 
 pub fn broadcast(manager: &WsManager, room_id: Uuid, event: ServerEvent) {
+    let mut to_remove = vec![];
     if let Some(room) = manager.rooms.get(&room_id) {
         for entry in room.iter() {
-            let _ = entry.value().send(event.clone());
+            if let Err(e) = entry.value().send(event.clone()) {
+                tracing::error!("{e}");
+                to_remove.push(*entry.key())
+            };
         }
+    }
+
+    for id in to_remove {
+        leave_room(manager, room_id, &id);
     }
 }
 
 pub async fn handle_socket(socket: WebSocket, room_id: Uuid, client_id: Uuid, manager: &WsManager) {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    join_room(manager, room_id.clone(), client_id.clone(), tx);
+    join_room(manager, room_id, client_id, tx);
     let (mut sender, mut receiver) = socket.split();
 
+    broadcast(manager, room_id, ServerEvent::OthersJoin);
     let send_task = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            let json = serde_json::to_string(&event).unwrap();
+            let json;
+            match serde_json::to_string(&event) {
+                Ok(ok) => {
+                    json = ok;
+                }
+                Err(e) => {
+                    tracing::error!("{e}");
+                    continue;
+                }
+            };
 
             if let Err(e) = sender
                 .send(axum::extract::ws::Message::Text(json.into()))
@@ -115,5 +138,5 @@ pub async fn handle_socket(socket: WebSocket, room_id: Uuid, client_id: Uuid, ma
         _ = recv_task => {},
     }
 
-    leave_room(manager, room_id, client_id);
+    leave_room(manager, room_id, &client_id);
 }

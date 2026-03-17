@@ -2,13 +2,18 @@ use axum::{
     extract::{Query, State},
     response::IntoResponse,
 };
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use bb8::RunError;
+use redis::RedisError;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    engine::EngineState,
-    repository::{RepositoryErr, check_if_img_vote_exists, upsert_img_vote},
+    engine::{
+        EngineState,
+        auth::{self, AuthUser},
+        check_if_he_can_take_action_in_room,
+    },
+    repository::{RepositoryErr, check_if_img_vote_exists, check_if_room_has_img, upsert_img_vote},
     ws::broadcast,
 };
 
@@ -16,12 +21,14 @@ use crate::{
 pub enum VoteErr {
     #[error("VoteErr: FromRepository: {0}")]
     FromRepository(#[from] RepositoryErr),
+
+    #[error("VoteErr: RedisErr: {0}")]
+    RedisErr(#[from] RunError<RedisError>),
 }
 
 #[derive(Deserialize)]
 pub struct VoteQuery {
     pub img_id: Uuid,
-    pub user_id: Uuid,
     pub is_good: bool,
     pub room_id: Uuid,
 }
@@ -36,8 +43,9 @@ pub struct VoteResult {
 pub async fn vote(
     Query(q): Query<VoteQuery>,
     State(state): State<EngineState>,
+    auth: AuthUser,
 ) -> impl IntoResponse {
-    match _vote_inner(q, state).await {
+    match _vote_inner(q, state, auth).await {
         Ok(res) => res,
         Err(e) => {
             tracing::error!("{e}");
@@ -46,15 +54,29 @@ pub async fn vote(
     }
 }
 
-async fn _vote_inner(q: VoteQuery, state: EngineState) -> Result<axum::http::StatusCode, VoteErr> {
-    let img_vote_op = check_if_img_vote_exists(&state.db, &q.user_id, &q.img_id).await?;
+async fn _vote_inner(
+    q: VoteQuery,
+    state: EngineState,
+    auth: AuthUser,
+) -> Result<axum::http::StatusCode, VoteErr> {
+    let mut conn = state.pool.get().await?;
+    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &auth.user_id, &q.room_id).await?
+    {
+        return Ok(axum::http::StatusCode::FORBIDDEN);
+    }
+
+    if !check_if_room_has_img(&state.db, &q.img_id, &q.room_id).await? {
+        return Ok(axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    let img_vote_op = check_if_img_vote_exists(&state.db, &auth.user_id, &q.img_id).await?;
     let is_new = img_vote_op.is_none();
 
     upsert_img_vote(
         &state.db,
         img_vote_op,
-        q.user_id,
-        q.img_id.clone(),
+        auth.user_id,
+        q.img_id,
         q.is_good.clone(),
     )
     .await?;

@@ -9,12 +9,10 @@ use uuid::Uuid;
 
 use crate::{
     engine::{
-        EngineState, check_if_he_can_take_action_in_room, generate_ban_tag_from_user_identifier,
-        generate_user_identifier,
+        EngineState, auth::AuthUser, check_if_he_can_take_action_in_room,
+        generate_ban_tag_from_user_identifier,
     },
-    repository::{
-        self, RepositoryErr, ban_user_with_tag, check_if_he_is_authorized, find_user_id_with_img_id,
-    },
+    repository::{RepositoryErr, ban_user_with_tag, check_if_he_is_authorized},
     ws::broadcast,
 };
 
@@ -30,21 +28,22 @@ pub enum PostBanUserErr {
 #[derive(Deserialize)]
 pub struct BanUserQuery {
     pub room_id: Uuid,
-    pub master_id: Uuid,
     pub user_identifier: String,
 }
 
 async fn _post_ban_user_inner(
     q: BanUserQuery,
     state: EngineState,
+    auth: AuthUser,
 ) -> Result<axum::http::StatusCode, PostBanUserErr> {
     let mut conn = state.pool.get().await?;
 
-    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &q.master_id, &q.room_id).await? {
+    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &auth.user_id, &q.room_id).await?
+    {
         return Ok(axum::http::StatusCode::FORBIDDEN);
     }
 
-    if !check_if_he_is_authorized(&state.db, &q.master_id, &q.room_id).await? {
+    if !check_if_he_is_authorized(&state.db, &auth.user_id, &q.room_id).await? {
         return Ok(axum::http::StatusCode::FORBIDDEN);
     }
 
@@ -65,8 +64,9 @@ async fn _post_ban_user_inner(
 pub async fn post_ban_user(
     Query(q): Query<BanUserQuery>,
     State(state): State<EngineState>,
+    auth: AuthUser,
 ) -> impl IntoResponse {
-    match _post_ban_user_inner(q, state).await {
+    match _post_ban_user_inner(q, state, auth).await {
         Ok(res) => res,
         Err(e) => {
             tracing::error!("{e}");

@@ -8,9 +8,11 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    engine::{EngineState, generate_user_identifier},
+    engine::{
+        EngineState, auth::AuthUser, check_if_he_can_take_action_in_room, generate_user_identifier,
+    },
     repository::{
-        RepositoryErr, commit_img, generate_object_key, get_object_key, update_commit_img_status,
+        RepositoryErr, check_if_room_exists, commit_img, get_object_key, update_commit_img_status,
     },
     ws::broadcast,
 };
@@ -26,7 +28,6 @@ pub enum PostImgErr {
 
 #[derive(Deserialize)]
 pub struct PostImgQuery {
-    pub user_id: Uuid,
     pub room_id: Uuid,
     pub title: Option<String>,
     pub presigned_url: String,
@@ -36,8 +37,9 @@ pub struct PostImgQuery {
 pub async fn post_img(
     Query(q): Query<PostImgQuery>,
     State(state): State<EngineState>,
+    auth: AuthUser,
 ) -> impl IntoResponse {
-    match _post_img_inner(q, state).await {
+    match _post_img_inner(q, state, auth).await {
         Ok(result) => result,
         Err(e) => {
             tracing::error!("{e}");
@@ -49,10 +51,20 @@ pub async fn post_img(
 async fn _post_img_inner(
     q: PostImgQuery,
     state: EngineState,
+    auth: AuthUser,
 ) -> Result<axum::http::StatusCode, PostImgErr> {
     let mut conn = state.pool.get().await?;
-    let obj_key = get_object_key(&mut conn, &q.user_id, &q.presigned_url).await?;
 
+    if !check_if_he_can_take_action_in_room(&state.db, &mut conn, &auth.user_id, &q.room_id).await?
+    {
+        return Ok(axum::http::StatusCode::FORBIDDEN);
+    };
+
+    if !check_if_room_exists(&state.db, &q.room_id).await? {
+        return Ok(axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    let obj_key = get_object_key(&mut conn, &auth.user_id, &q.presigned_url).await?;
     if obj_key.is_none() {
         return Ok(axum::http::StatusCode::BAD_REQUEST);
     }
@@ -60,13 +72,13 @@ async fn _post_img_inner(
     let unwrapped_key = obj_key.unwrap();
     let img_id = commit_img(
         &state.db,
-        q.room_id.clone(),
-        q.user_id.clone(),
+        q.room_id,
+        auth.user_id,
         q.title.clone(),
         unwrapped_key.clone(),
     )
     .await?;
-    update_commit_img_status(&mut conn, &q.user_id, state.post_img_timeout).await?;
+    update_commit_img_status(&mut conn, &auth.user_id, state.post_img_timeout).await?;
 
     broadcast(
         &state.manager,
@@ -76,7 +88,7 @@ async fn _post_img_inner(
             url: unwrapped_key,
             title: q.title,
             display_name: q.display_name.unwrap_or("無名".to_string()),
-            user_identifier: generate_user_identifier(&q.user_id),
+            user_identifier: generate_user_identifier(&auth.user_id),
         },
     );
 

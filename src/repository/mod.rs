@@ -3,12 +3,13 @@ use aws_sdk_s3::{
 };
 use bb8::PooledConnection;
 use bb8_redis::RedisConnectionManager;
-use chrono::{NaiveDateTime, NaiveTime};
+use chrono::NaiveDateTime;
 use redis::{AsyncCommands, RedisError};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
     RelationTrait,
 };
+use sha2::Digest;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -53,7 +54,7 @@ pub async fn check_if_comment_exists(
     comment_id: &Uuid,
 ) -> Result<bool, RepositoryErr> {
     Ok(comment::Entity::find()
-        .filter(user::Column::Id.eq(comment_id.to_string()))
+        .filter(comment::Column::Id.eq(comment_id.to_string()))
         .one(db)
         .await?
         .is_some())
@@ -198,6 +199,7 @@ pub async fn get_posted_comments(
             comment::Relation::Room.def().rev(),
         )
         .filter(room::Column::Id.eq(room_id.to_string()))
+        .filter(comment::Column::DeletedAt.eq(None as Option<NaiveDateTime>))
         .all(db)
         .await?)
 }
@@ -274,7 +276,7 @@ pub async fn check_if_his_img_waits_enough(
     Ok(conn
         .get::<String, Option<String>>(post_img_tag)
         .await?
-        .is_some())
+        .is_none())
 }
 
 pub async fn check_if_his_comment_waits_enough(
@@ -285,7 +287,7 @@ pub async fn check_if_his_comment_waits_enough(
     Ok(conn
         .get::<String, Option<String>>(post_comment_tag)
         .await?
-        .is_some())
+        .is_none())
 }
 
 pub async fn post_comment(
@@ -430,7 +432,11 @@ pub async fn resolve_user_ban_with_tag(
 }
 
 fn generate_redis_presigned_url_save(presigned_url: &str, user_id: &Uuid) -> String {
-    format!("{}-{}", presigned_url, user_id)
+    format!(
+        "presigned:{}:{:x}",
+        user_id,
+        sha2::Sha256::digest(presigned_url.as_bytes())
+    )
 }
 
 pub async fn add_valid_presigned_url(
@@ -505,7 +511,7 @@ pub async fn check_if_img_vote_exists(
             sea_orm::JoinType::InnerJoin,
             image_vote::Relation::Images.def().rev(),
         )
-        .filter(images::Column::DeletedAt.eq(None as Option<NaiveTime>))
+        .filter(images::Column::DeletedAt.eq(None as Option<NaiveDateTime>))
         .filter(image_vote::Column::UserId.eq(user_id.to_string()))
         .filter(image_vote::Column::ImageId.eq(img_id.to_string()))
         .one(db)
@@ -561,4 +567,21 @@ pub async fn find_user_id_with_img_id(
             None
         },
     )
+}
+
+pub async fn delete_room(db: &impl ConnectionTrait, room_id: &Uuid) -> Result<(), RepositoryErr> {
+    if let Some(room) = room::Entity::find()
+        .filter(room::Column::Id.eq(room_id.to_string()))
+        .one(db)
+        .await?
+    {
+        if room.deleted_at.is_none() {
+            let mut active_value: room::ActiveModel = room.into();
+            active_value.deleted_at =
+                sea_orm::ActiveValue::Set(Some(chrono::Utc::now().naive_utc()));
+            active_value.update(db).await?;
+        }
+    }
+
+    Ok(())
 }
