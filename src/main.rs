@@ -69,7 +69,6 @@ async fn main() {
         expires_in: get_env_with_parsing!("EXPIRES_IN", u64),
         post_img_timeout: get_env_with_parsing!("POST_IMG_TIMEOUT", usize),
         post_comment_timeout: get_env_with_parsing!("POST_COMMENT_TIMEOUT", usize),
-        ban_timeout: get_env_with_parsing!("BAN_TIMEOUT", usize),
         secret: get_env!("SECRET").as_bytes().to_vec(),
         req_per_minute: get_env_with_parsing!("REQUEST_PER_MINUTE", usize),
     });

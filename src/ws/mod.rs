@@ -11,6 +11,7 @@ use crate::repository::{
 };
 
 #[derive(Serialize, Clone)]
+#[serde(tag = "type")]
 pub enum ServerEvent {
     ImagePosted {
         id: Uuid,

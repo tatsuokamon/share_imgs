@@ -10,10 +10,9 @@ use uuid::Uuid;
 
 use crate::{
     engine::{
-        EngineState, auth::AuthUser, check_if_he_can_take_action_in_room,
-        generate_ban_tag_from_user_identifier,
+        EngineState, auth::AuthUser, check_if_he_can_take_action_in_room, generate_user_identifier,
     },
-    repository::{RepositoryErr, check_if_ban_tag_exists, resolve_user_ban_with_tag},
+    repository::{RepositoryErr, check_if_ban_tag_exists, check_if_he_is_banned, resolve_ban},
     ws::{ServerEvent, broadcast},
 };
 
@@ -43,12 +42,12 @@ async fn _delete_ban_user_inner(
         return Ok(axum::http::StatusCode::FORBIDDEN);
     }
 
-    let ban_tag = generate_ban_tag_from_user_identifier(&q.user_identifier, Some(&q.room_id));
-    if !check_if_ban_tag_exists(&mut conn, &ban_tag).await? {
+    let user_identifier = generate_user_identifier(&auth.user_id);
+    if check_if_he_is_banned(&mut conn, &q.room_id, &user_identifier).await? {
         return Ok(axum::http::StatusCode::BAD_REQUEST);
     }
+    resolve_ban(&mut conn, &q.room_id, &user_identifier).await?;
 
-    resolve_user_ban_with_tag(&mut conn, ban_tag).await?;
     broadcast(
         &state.manager,
         q.room_id,

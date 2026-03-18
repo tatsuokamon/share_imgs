@@ -10,7 +10,7 @@ use sea_orm::{
     RelationTrait,
 };
 use sha2::Digest;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 use uuid::Uuid;
 
 use crate::entity::{comment, image_vote, images, room, user};
@@ -164,6 +164,7 @@ pub async fn get_room_id_from_keyword(
     Ok(
         if let Some(m) = room::Entity::find()
             .filter(room::Column::Keyword.eq(keyword))
+            .filter(room::Column::DeletedAt.eq(None as Option<NaiveDateTime>))
             .one(db)
             .await?
         {
@@ -402,33 +403,51 @@ pub async fn check_if_ban_tag_exists(
 }
 
 // if room id not specified, target will be banned from all room
-pub async fn ban_user_with_tag(
+pub async fn ban_user(
     conn: &mut PooledConnection<'_, RedisConnectionManager>,
-    ban_timeout: usize,
-    redis_ban_storage_tag: String,
+    room_id: &Uuid,
+    user_identifier: &str,
 ) -> Result<(), RepositoryErr> {
-    let _: String = redis::cmd("SET")
-        .arg(redis_ban_storage_tag)
-        .arg("1")
-        .arg("NX")
-        .arg("EX")
-        .arg(ban_timeout)
-        .query_async(&mut **conn)
-        .await?;
-
-    Ok(())
+    Ok(conn
+        .hset::<String, &str, &str, _>(room_id.to_string(), user_identifier, "1")
+        .await?)
 }
 
-pub async fn resolve_user_ban_with_tag(
+pub async fn resolve_ban(
     conn: &mut PooledConnection<'_, RedisConnectionManager>,
-    redis_ban_storage_tag: String,
+    room_id: &Uuid,
+    user_identifier: &str,
 ) -> Result<(), RepositoryErr> {
-    let _: String = redis::cmd("DEL")
-        .arg(redis_ban_storage_tag)
-        .query_async(&mut **conn)
-        .await?;
+    Ok(conn
+        .hdel::<String, &str, _>(room_id.to_string(), user_identifier)
+        .await?)
+}
 
-    Ok(())
+pub async fn check_if_he_is_banned(
+    conn: &mut PooledConnection<'_, RedisConnectionManager>,
+    room_id: &Uuid,
+    user_identifier: &str,
+) -> Result<bool, RepositoryErr> {
+    Ok(conn
+        .hget::<String, &str, Option<String>>(room_id.to_string(), user_identifier)
+        .await?
+        .is_some())
+}
+
+pub async fn get_all_banned_users(
+    conn: &mut PooledConnection<'_, RedisConnectionManager>,
+    room_id: Uuid,
+) -> Result<Option<Vec<String>>, RepositoryErr> {
+    Ok(
+        if let Some(v) = conn
+            .hgetall::<String, Option<HashMap<String, String>>>(room_id.to_string())
+            .await?
+        {
+            Some(v.into_keys().collect())
+        } else {
+            None
+        },
+    )
 }
 
 fn generate_redis_presigned_url_save(presigned_url: &str, user_id: &Uuid) -> String {

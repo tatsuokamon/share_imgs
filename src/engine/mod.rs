@@ -14,9 +14,7 @@ use crate::{
         post_comment::post_comment, post_img::post_img, rate_limit::rate_limit_middleware,
         ws_handler::ws_handler,
     },
-    repository::{
-        RepositoryErr, check_if_ban_tag_exists, check_if_he_exists, check_if_room_exists,
-    },
+    repository::{RepositoryErr, check_if_he_exists, check_if_he_is_banned, check_if_room_exists},
     ws::WsManager,
 };
 
@@ -41,6 +39,7 @@ mod vote;
 mod ws_handler;
 
 mod delete_ban_user;
+mod get_ban_user;
 mod post_ban_user;
 
 mod delete_room;
@@ -56,7 +55,6 @@ pub struct EngineStateSrc {
     pub expires_in: u64,
     pub post_img_timeout: usize,
     pub post_comment_timeout: usize,
-    pub ban_timeout: usize,
     pub secret: Vec<u8>,
     pub req_per_minute: usize,
 }
@@ -67,24 +65,15 @@ fn generate_user_identifier(user_id: &Uuid) -> String {
     format!("user-{:x}", sha2::Sha256::digest(user_id.as_bytes()))
 }
 
-fn generate_ban_tag_from_user_identifier(user_identifiter: &str, room_id: Option<&Uuid>) -> String {
-    match room_id {
-        Some(room_id) => {
-            format!("ban-{}-from-{}", user_identifiter, &room_id)
-        }
-        None => {
-            format!("ban-{}", user_identifiter)
-        }
-    }
-}
-
 pub fn generate_router(state: EngineState) -> Router {
     Router::new()
         // about user
         .route("/new-user-id", axum::routing::get(get_user_id::get_user_id))
         .route(
             "/ban",
-            routing::post(post_ban_user::post_ban_user).delete(delete_ban_user::delete_ban_user),
+            routing::post(post_ban_user::post_ban_user)
+                .delete(delete_ban_user::delete_ban_user)
+                .get(get_ban_user::get_ban_user),
         )
         // about room
         .route(
@@ -119,12 +108,9 @@ pub async fn check_if_he_can_take_action_in_room(
     user_id: &Uuid,
     room_id: &Uuid,
 ) -> Result<bool, RepositoryErr> {
-    let user_identifiter = generate_user_identifier(user_id);
-    let room_ban_tag = generate_ban_tag_from_user_identifier(&user_identifiter, Some(room_id));
-    let all_ban_tag = generate_ban_tag_from_user_identifier(&user_identifiter, None);
+    let user_identifier = generate_user_identifier(user_id);
 
     Ok(check_if_he_exists(db, user_id).await?
         && check_if_room_exists(db, room_id).await?
-        && !check_if_ban_tag_exists(conn, &room_ban_tag).await?
-        && !check_if_ban_tag_exists(conn, &all_ban_tag).await?)
+        && check_if_he_is_banned(conn, room_id, &user_identifier).await?)
 }

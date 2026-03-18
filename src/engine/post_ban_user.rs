@@ -9,10 +9,9 @@ use uuid::Uuid;
 
 use crate::{
     engine::{
-        EngineState, auth::AuthUser, check_if_he_can_take_action_in_room,
-        generate_ban_tag_from_user_identifier,
+        EngineState, auth::AuthUser, check_if_he_can_take_action_in_room, generate_user_identifier,
     },
-    repository::{RepositoryErr, ban_user_with_tag, check_if_he_is_authorized},
+    repository::{RepositoryErr, ban_user, check_if_he_is_authorized},
     ws::broadcast,
 };
 
@@ -47,8 +46,7 @@ async fn _post_ban_user_inner(
         return Ok(axum::http::StatusCode::FORBIDDEN);
     }
 
-    let ban_tag = generate_ban_tag_from_user_identifier(&q.user_identifier, Some(&q.room_id));
-    ban_user_with_tag(&mut conn, state.ban_timeout, ban_tag).await?;
+    ban_user(&mut conn, &q.room_id, &q.user_identifier).await?;
 
     broadcast(
         &state.manager,
